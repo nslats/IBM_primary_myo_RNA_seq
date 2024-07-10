@@ -1,0 +1,2 @@
+GO Term,Description,P-value,FDR q-value,Enrichment,N,B,n,b,Genes
+GO:0006631,fatty acid metabolic process,8.01E-4,1E0,18.65,342,5,11,3,"[CYP2J2  -  cytochrome p450, family 2, subfamily j, polypeptide 2, FAAH  -  fatty acid amide hydrolase, PRKAA2  -  protein kinase, amp-activated, alpha 2 catalytic subunit]"
