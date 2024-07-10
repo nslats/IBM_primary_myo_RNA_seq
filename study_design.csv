@@ -1,0 +1,5 @@
+Sample ,replicate 1,replicate 2,replicate 3,Treatment,Group
+HC,A2,B2,B5,Treated,Healthy
+IBM_Neg,A3,A6,B3,Treated,Disease
+IBM_Pos,A1,A5,B1,Treated,Disease
+UT,A4,B4,B6,Untreated,Untreated
