@@ -1,0 +1,566 @@
+---
+title: "<center> The transcriptional response of primary human myotubes to anti-cN1A-positive serum <center>"
+author: "<center> Nataliya Slater <center><br>"
+date: "<center> _`r Sys.Date()`_ <center>"
+output:
+  html_document:
+    code_folding: hide
+    df_print: paged
+    theme: yeti
+    highlight: tango
+    toc: yes
+    toc_float:
+      collapsed: false
+      smooth_scroll: false
+    number_sections: true
+  pdf_document:
+    fig_caption: yes
+    toc: yes
+---
+
+```{r setup, include=FALSE}
+library(rmarkdown)
+library(tinytex)
+library(knitr)
+knitr::opts_chunk$set(echo=TRUE, warning=FALSE, message=FALSE, cache = TRUE)
+```
+
+# Introduction
+
+Transcriptomic data for four samples of primary human myosites was obtained from IIID under ReportID=2024, produced on 20-June-2024. Performed RNAseq using the smartseq assay from the cell lysates. Sequenced on the Novaseq 6000 using 2x150bp PE reads on the 2024-05-31. Average of 5 million reads obtained per sample. Raw data can be downloaded from [here](https://iiid-collaboration.s3.ap-southeast-2.amazonaws.com/1224/1224s45-RNAse%20raw%20data.zip).
+
+Each test condition was performed in triplicate, however samples were pooled prior to sequencing to reduce cost.
+
+***
+
+# Importing count data into R
+
+Raw data containing read counts mapped to a GeneID was imported into the R environment.  
+
+```{r DataImport}
+library(tidyverse) 
+
+df <- read.delim("RawCounts.csv", row.names = 1, header = TRUE, sep = ',')
+
+
+
+```
+
+***
+
+# Preprocessing
+
+## Impact of filtering and normalization
+
+
+
+```{r dataWrangling}
+library(tidyverse)
+library(edgeR)
+library(matrixStats)
+library(cowplot)
+
+condition <- c("HC", "IBM_Neg", "IBM_Pos", "UT")
+colnames(df) = condition
+
+myDGEList <- DGEList(df, group = condition)
+
+#head(myDGEList$counts)
+
+log2.cpm <- cpm(myDGEList, log=TRUE)
+
+log2.cpm.df <- as_tibble(log2.cpm, rownames = "geneID")
+colnames(log2.cpm.df) <- c("geneID", condition)
+log2.cpm.df.pivot <- pivot_longer(log2.cpm.df, # dataframe to be pivoted
+                                  cols = "HC":"UT", # column names to be stored as a SINGLE variable
+                                  names_to = "samples", # name of that new variable (column)
+                                  values_to = "expression") # name of new variable (column) storing all the values (data)
+
+p1 <- ggplot(log2.cpm.df.pivot) +
+  aes(x=samples, y=expression, fill=samples) +
+  geom_violin(trim = FALSE, show.legend = FALSE) +
+  stat_summary(fun = "median", 
+               geom = "point", 
+               shape = 95, 
+               size = 10, 
+               color = "black", 
+               show.legend = FALSE) +
+  labs(y="log2 expression", x = "",
+       title="Log2 Counts per Million (CPM)",
+       subtitle="unfiltered, non-normalized",
+       caption=paste0("produced on ", Sys.time())) +
+  theme_bw()
+
+keep <- filterByExpr(myDGEList)
+myDGEList.filtered <- myDGEList[keep, , keep.lib.sizes=FALSE]
+
+log2.cpm.filtered <- cpm(myDGEList.filtered, log=TRUE)
+log2.cpm.filtered.df <- as_tibble(log2.cpm.filtered, rownames = "geneID")
+colnames(log2.cpm.filtered.df) <- c("geneID", condition)
+log2.cpm.filtered.df.pivot <- pivot_longer(log2.cpm.filtered.df, # dataframe to be pivoted
+                                           cols = "HC":"UT", # column names to be stored as a SINGLE variable
+                                           names_to = "samples", # name of that new variable (column)
+                                           values_to = "expression") # name of new variable (column) storing all the values (data)
+
+p2 <- ggplot(log2.cpm.filtered.df.pivot) +
+  aes(x=samples, y=expression, fill=samples) +
+  geom_violin(trim = FALSE, show.legend = FALSE) +
+  stat_summary(fun = "median", 
+               geom = "point", 
+               shape = 95, 
+               size = 10, 
+               color = "black", 
+               show.legend = FALSE) +
+  labs(y="log2 expression", x = "",
+       title="Log2 Counts per Million (CPM)",
+       subtitle="filtered, non-normalized",
+       caption=paste0("produced on ", Sys.time())) +
+  theme_bw()
+
+myDGEList.filtered.norm <- calcNormFactors(myDGEList.filtered, method = "TMM")
+log2.cpm.filtered.norm <- cpm(myDGEList.filtered.norm, log=TRUE)
+log2.cpm.filtered.norm.df <- as_tibble(log2.cpm.filtered.norm, rownames = "geneID")
+colnames(log2.cpm.filtered.norm.df) <- c("geneID", condition)
+log2.cpm.filtered.norm.df.pivot <- pivot_longer(log2.cpm.filtered.norm.df, # dataframe to be pivoted
+                                                cols = "HC":"UT", # column names to be stored as a SINGLE variable
+                                                names_to = "samples", # name of that new variable (column)
+                                                values_to = "expression") # name of new variable (column) storing all the values (data)
+
+p3 <- ggplot(log2.cpm.filtered.norm.df.pivot) +
+  aes(x=samples, y=expression, fill=samples) +
+  geom_violin(trim = FALSE, show.legend = FALSE) +
+  stat_summary(fun = "median", 
+               geom = "point", 
+               shape = 95, 
+               size = 10, 
+               color = "black", 
+               show.legend = FALSE) +
+  labs(y="log2 expression", x = "",
+       title="Log2 Counts per Million (CPM)",
+       subtitle="filtered, TMM normalized",
+       caption=paste0("produced on ", Sys.time())) +
+  theme_bw()
+
+plot_grid(p1, p2, p3, labels = c('A', 'B', 'C'), label_size = 12)
+```
+
+Filtering was carried out to remove lowly expressed genes using **EdgeR filterByExpr** function. This reduced the number of genes from `r nrow(myDGEList)` to `r nrow(myDGEList.filtered)`. 
+
+***
+
+### Table of filtered and normalized data
+
+The table shown below includes expression data for `r nrow(myDGEList.filtered)` genes. You can sort and search the data directly from the table.
+
+```{r Creating a data table}
+library(tidyverse)
+library(DT)
+library(gt)
+library(plotly)
+
+mydata.df <- log2.cpm.filtered.norm.df %>%
+                    mutate_if(is.numeric, round, 2) %>%
+  column_to_rownames(var = "geneID")
+
+datatable(mydata.df, 
+          extensions = c('KeyTable', "FixedHeader"), 
+          filter = 'none',
+          caption = 'Filtered and normalised transcript counts',
+          options = list(keys = TRUE, 
+                         searchHighlight = TRUE, 
+                         pageLength = 10, 
+                         lengthMenu = c("10", "25", "50", "100")))
+
+```
+
+
+
+
+***
+
+# Heatmap of all gene expression 
+
+```{r}
+library(tidyverse)
+library(gplots)
+library(RColorBrewer)
+myheatcolors <- rev(brewer.pal(name="RdBu", n=11))
+
+heatmap.df <- log2.cpm.filtered.norm.df
+
+Genes <- as.matrix(heatmap.df %>% select(-geneID))
+
+rownames(Genes) <- heatmap.df$geneID
+
+clustRows <- hclust(as.dist(1-cor(t(Genes), method="pearson")), method="complete") #cluster rows by pearson correlation
+clustColumns <- hclust(as.dist(1-cor(Genes, method="spearman")), method="complete")
+module.assign <- cutree(clustRows, k=5)
+module.color <- rainbow(length(unique(module.assign)), start=0.1, end=0.9) 
+module.color <- module.color[as.vector(module.assign)] 
+heatmap.2(Genes, 
+          Rowv=as.dendrogram(clustRows), 
+          Colv=as.dendrogram(clustColumns),
+          RowSideColors=module.color,
+          #col=myheatcolors, 
+          col=greenred(10),
+          scale='row', labRow=NA,
+          density.info="none", trace="none",  
+          cexRow=1, cexCol=1, margins=c(8,10), 
+          main = "Heatmap of gene expression 
+          in all samples")
+```
+
+
+# PCA plot
+
+```{r PCA plot}
+
+group <- factor(condition)
+
+pca.res <- prcomp(t(log2.cpm.filtered.norm), scale.=F, retx=T)
+pc.var<-pca.res$sdev^2 # sdev^2 captures these eigenvalues from the PCA result
+pc.per<-round(pc.var/sum(pc.var)*100, 1) 
+pca.res.df <- as_tibble(pca.res$x)
+ggplot(pca.res.df) +
+  aes(x=PC1, y=PC2, label=group) +
+  geom_point(size=4) +
+  geom_label(nudge_x = 40) +
+  #stat_ellipse() +
+  xlab(paste0("PC1 (",pc.per[1],"%",")")) + 
+  ylab(paste0("PC2 (",pc.per[2],"%",")")) +
+  labs(title="PCA plot",
+       caption=paste0("produced on ", Sys.time())) +
+  coord_fixed() +
+  theme_bw()
+
+
+```
+
+***
+
+# Estimating dispersion from housekeeping genes
+
+Since no biological replicates are available for each condition, dispersion was estimated using a subset of housekeeping genes provided by IIID. Presumably, these gene were unaffected by the treatments used, therefore the only variation present is the inherent biological variation. You can see the list of housekeeping genes in the table below. Dispersion was estimated using **EdgeR estimateDisp** function. This value was used for the remainder of the analysis.
+
+```{r Estimating Dispersion}
+
+housekeeping_df <- read.csv("housekeeping_genes.csv", row.names = 1)
+
+colnames(housekeeping_df) = condition
+
+house_DGEList <- DGEList(housekeeping_df)
+house_DGEList$samples$group <- 1
+
+disp <- estimateDisp(house_DGEList, trend="none", tagwise=FALSE)
+
+common_disp <- disp$common.dispersion
+
+datatable(housekeeping_df, 
+          filter = 'none',
+          extensions = c('KeyTable', "FixedHeader"), 
+          caption = 'Housekeeping genes used to estimate common dispersion',
+          options = list(keys = TRUE, searchHighlight = TRUE, pageLength = 10, lengthMenu = c("10", "25", "50", "100"))) %>%
+  formatRound(columns=c(1:4), digits=0)
+
+```
+
+Common dispersion was estimated to be **`r common_disp`**.
+
+***
+
+# Differential Gene Analysis using the Exact Test
+
+The exact test is based on the qCML methods. Knowing the conditional distribution for the
+sum of counts in a group, we can compute exact p-values by summing over all sums of counts
+that have a probability less than the probability under the null hypothesis of the observed
+sum of counts. The exact test for the negative binomial distribution has strong parallels with
+Fisher’s exact test.
+
+Gene expression of primary myotubes treated with anti-cN1A-positive serum was compared to the same myotubes treated with either anti-cN1A-negative or healthy serum or grown under base conditions (untreated). 
+
+Genes were considered differentially expressed if they were above a false-discovery rate/adjusted P value (FDR) of 0.05.
+
+
+## DEG Venn diagram
+
+```{r DEG (Venn diagram)}
+#Pos vs Neg comparison
+
+et_Pos_vs_Neg <- exactTest(myDGEList.filtered.norm, 
+                           pair = c("IBM_Pos", "IBM_Neg"),
+                           dispersion = common_disp)
+
+DEG_pos_v_neg_et <- topTags(et_Pos_vs_Neg, n = 1000000, p.value = 0.05) 
+DEG_pos_v_neg_et.df <- as_tibble(DEG_pos_v_neg_et$table, rownames = "GeneID")
+
+#Pos vs HC comparison
+
+et_Pos_vs_HC <- exactTest(myDGEList.filtered.norm, 
+                           pair = c("IBM_Pos", "HC"),
+                           dispersion = common_disp)
+
+DEG_pos_v_HC_et <- topTags(et_Pos_vs_HC, n = 1000000, p.value = 0.05) 
+DEG_pos_v_HC_et.df <- as_tibble(DEG_pos_v_HC_et$table, rownames = "GeneID")
+
+#Pos vs UT comparison
+
+et_Pos_vs_UT <- exactTest(myDGEList.filtered.norm, 
+                          pair = c("IBM_Pos", "UT"),
+                          dispersion = common_disp)
+
+DEG_pos_v_UT_et <- topTags(et_Pos_vs_UT, n = 1000000, p.value = 0.05) 
+DEG_pos_v_UT_et.df <- as_tibble(DEG_pos_v_UT_et$table, rownames = "GeneID")
+
+
+library(VennDiagram)
+
+venn_list <- list(Vector1 = DEG_pos_v_neg_et.df$GeneID, Vector2 = DEG_pos_v_HC_et.df$GeneID, Vector3 = DEG_pos_v_UT_et.df$GeneID)
+
+venn.plot <- venn.diagram(
+  x = venn_list,
+  category.names = c("Pos-Neg", "Pos-HC", "Pos-UT"),
+  filename = NULL,
+  output = TRUE
+)
+
+grid.newpage()
+grid.draw(venn.plot)
+
+commonGeneID_et <- Reduce(intersect, list(Vector1 = DEG_pos_v_HC_et.df$GeneID, Vector2 = DEG_pos_v_neg_et.df$GeneID, Vector3 = DEG_pos_v_UT_et.df$GeneID))
+
+
+```
+
+`r length(commonGeneID_et)` genes were selected as differentially expressed following anti-cN1A-positive serum treatment.
+
+## DEG summary table
+
+```{r DEG (summary table)}
+
+commonGeneID_et <- Reduce(intersect, list(Vector1 = DEG_pos_v_HC_et.df$GeneID, Vector2 = DEG_pos_v_neg_et.df$GeneID, Vector3 = DEG_pos_v_UT_et.df$GeneID))
+
+DEG.df <- log2.cpm.filtered.norm.df %>%
+  filter(geneID %in% commonGeneID_et) %>%
+  column_to_rownames(var = "geneID")
+
+datatable(DEG.df,
+          #filter = 'none',
+          extensions = c('KeyTable', "FixedHeader"), 
+          caption = 'DEGs in primary myotubes treates with anti-cN1A-positive serum',
+          options = list(keys = TRUE, searchHighlight = TRUE, pageLength = 10, lengthMenu = c("10", "25", "50", "100"))) %>%
+  formatRound(columns=c(1:4), digits=2)
+
+```
+
+***
+
+# DEG Heatmaps and modules
+
+Pearson correlation was used to cluster **`r nrow(DEG.df)`** differentially expressed genes, which were then represented as a heatmap with the data scaled by Zscore for each row.
+
+Genes were clustered into 2 modules based on their expression patterns.
+
+```{r DEG (heatmap)}
+library(tidyverse)
+library(gplots)
+library(RColorBrewer)
+myheatcolors <- rev(brewer.pal(name="RdBu", n=11))
+
+DEG.df <- log2.cpm.filtered.norm.df %>%
+  filter(geneID %in% commonGeneID_et)
+
+diffGenes <- as.matrix(DEG.df %>% select(-geneID))
+
+rownames(diffGenes) <- DEG.df$geneID
+
+clustRows <- hclust(as.dist(1-cor(t(diffGenes), method="pearson")), method="complete") #cluster rows by pearson correlation
+clustColumns <- hclust(as.dist(1-cor(diffGenes, method="spearman")), method="complete")
+module.assign <- cutree(clustRows, k=2)
+module.color <- rainbow(length(unique(module.assign)), start=0.1, end=0.9) 
+module.color <- module.color[as.vector(module.assign)] 
+heatmap.2(diffGenes, 
+          Rowv=as.dendrogram(clustRows), 
+          Colv=as.dendrogram(clustColumns),
+          RowSideColors=module.color,
+          #col=myheatcolors, 
+          col=greenred(10),
+          scale='row', labRow=NA,
+          density.info="none", trace="none",  
+          cexRow=1, cexCol=1, margins=c(8,10), 
+          main = "Heatmap of all 
+          differentially expressed genes")
+
+counts <- table(module.assign)
+
+```
+
+**Module 1** contains **`r counts[2]`** Genes and **Module 2** contains **`r counts[1]`** Genes.
+
+
+```{r Module 1 (upregulated genes)}
+modulePick <- 1 
+myModule_up <- diffGenes[names(module.assign[module.assign %in% modulePick]),] 
+hrsub_up <- hclust(as.dist(1-cor(t(myModule_up), method="pearson")), method="complete") 
+
+heatmap.2(myModule_up, 
+          #Rowv=as.dendrogram(hrsub_up), 
+          Rowv = FALSE,
+          Colv=NA, 
+          labRow = NA,
+          #col=myheatcolors, 
+          col=greenred(10),
+          scale="row", 
+          density.info="none", trace="none", 
+          RowSideColors=module.color[module.assign%in%modulePick], margins=c(8,20),
+          main = "Module 1
+          Upregulated genes")
+
+```
+
+
+```{r Module 2 (downregulated genes)}
+modulePick <- 2 
+myModule_down <- diffGenes[names(module.assign[module.assign %in% modulePick]),] 
+hrsub_down <- hclust(as.dist(1-cor(t(myModule_down), method="pearson")), method="complete") 
+
+heatmap.2(myModule_down, 
+          #Rowv=as.dendrogram(hrsub_down), 
+          Rowv = FALSE,
+          Colv=NA, 
+          labRow = NA,
+          #col=myheatcolors, 
+          col=greenred(10),
+          scale="row", 
+          density.info="none", trace="none", 
+          RowSideColors=module.color[module.assign%in%modulePick], margins=c(8,20),
+          main = "Module 2
+          Downregulated genes")
+```
+
+***
+
+# Gene Ontology enrichment
+
+GO enrichment for the `r nrow(diffGenes)` genes induced by antibody-positive serum.
+
+The plots are interactive. Pointing the cursor will show the pathway details.
+
+## Upregulated Genes
+
+```{r FunctionalEnrichment part 1 (gostplot for upregulated genes)}
+library(tidyverse)
+library(limma)
+library(gplots) #for heatmaps
+library(DT) #interactive and searchable tables of our GSEA results
+library(GSEABase) #functions and methods for Gene Set Enrichment Analysis
+library(Biobase) #base functions for bioconductor; required by GSEABase
+library(GSVA) #Gene Set Variation Analysis, a non-parametric and unsupervised method for estimating variation of gene set enrichment across samples.
+library(gprofiler2) #tools for accessing the GO enrichment results using g:Profiler web resources
+library(clusterProfiler) # provides a suite of tools for functional enrichment analysis
+library(msigdbr) # access to msigdb collections directly within R
+library(enrichplot) # great for making the standard GSEA enrichment plots
+
+gost.res_up <- gost(rownames(myModule_up), organism = "hsapiens", correction_method = "fdr")
+gostplot(gost.res_up, interactive = T, capped = F) 
+
+```
+
+## Downregulated Genes
+
+```{r FunctionalEnrichment part 2 (gostplot for downregulated genes)}
+gost.res_down <- gost(rownames(myModule_down), organism = "hsapiens", correction_method = "fdr")
+gostplot(gost.res_down, interactive = T, capped = F) 
+```
+
+# Gene ontology analysis with GORILLA
+
+[Gene Ontology enRIchment anaLysis and visuaLizAtion tool (GOrilla)](https://cbl-gorilla.cs.technion.ac.il/) is an online analysis tool that takes an input of a ranked list of genes and provides a tree of differentially expressed pathways. 
+
+The pathways can then be visualised in R using [REVIGO](http://revigo.irb.hr/) code. Here, no visualisation was done since only one pathway was identified. 
+
+```{r Gorilla GO table (upregulated genes)}
+
+IBM_Pos_DEG_up <- rownames(myModule_up)
+
+write.csv(IBM_Pos_DEG_up, "Upregulated_genes_IBM_Pos_list.csv")
+
+gorilla_output_up <- read_csv("Gorilla_IBM_Pos_vs_all_samples_up.csv")
+
+datatable(gorilla_output_up,
+          #filter = 'none',
+          extensions = c('KeyTable', "FixedHeader"), 
+          caption = 'Gene ontology of DEG using GOrilla analysis',
+          options = list(keys = TRUE, searchHighlight = TRUE, pageLength = 10, lengthMenu = c("10", "25", "50", "100"))) 
+
+```
+
+```{r GOrilla GO table (downregulated genes)}
+
+IBM_Pos_DEG_down <- rownames(myModule_down)
+
+write.csv(IBM_Pos_DEG_down, "Downregulated_genes_IBM_Pos_list.csv")
+
+```
+
+No downregulated pathways were identified by GOrilla. 
+
+# Gene Set Enrichment
+
+Gene set enrichment analysis is presented for comparison of IBM_Pos and untreated control. Comparing IBM_Pos to any other sample let to no enriched pathways identified.\\
+[MSigDB](https://www.gsea-msigdb.org/gsea/msigdb/index.jsp) **Kegg-Legacy** dataset was used as a reference.
+
+```{r FunctionalEnrichment part 3 (GSEA)}
+
+KEGG_legacy <- read.gmt("msigdb_v2023.2.Hs_GMTs/c2.cp.kegg_legacy.v2023.2.Hs.symbols.gmt") #reference pathway database
+
+
+GSEA_data <- DEG_pos_v_UT_et.df %>%
+  select("GeneID", "logFC")
+
+mydata.gsea <- GSEA_data$logFC
+names(mydata.gsea) <- as.character(GSEA_data$GeneID)
+mydata.gsea <- sort(mydata.gsea, decreasing = TRUE)
+
+# run GSEA using the 'GSEA' function from clusterProfiler
+set.seed(123) #set a random seed so that we can reproducible ordering for our GSEA results below
+myGSEA.res <- GSEA(mydata.gsea, TERM2GENE=KEGG_legacy, verbose=FALSE, pvalueCutoff = 0.05) #could replace C2CP with hs_gsea_c2 object you retrieved from msigdb above
+myGSEA.df <- as_tibble(myGSEA.res@result)
+
+# view results as an interactive table
+datatable(myGSEA.df, 
+          filter = 'none',
+          extensions = c('KeyTable', "FixedHeader"), 
+          caption = 'Signatures enriched in primary myotubes treated with anti-cN1A-positive serum compared to untreated',
+          options = list(keys = TRUE, searchHighlight = TRUE, pageLength = 10, lengthMenu = c("10", "25", "50", "100"))) %>%
+  formatRound(columns=c(3:10), digits=2)
+
+```
+
+```{r FunctionalEnrichment part 4 (enrichment plot)}
+# create enrichment plots using the enrichplot package
+gseaplot2(myGSEA.res, 
+          geneSetID = "KEGG_DNA_REPLICATION", #can choose multiple signatures to overlay in this plot
+          pvalue_table = FALSE, #can set this to FALSE for a cleaner plot
+          title = myGSEA.res$Description[47]) #can also turn off this title
+
+```
+***
+
+## Conclusions
+
+- Myotubes incubated with IBM anti-cN1A sera have a distinct transcriptional profile.
+
+- Fatty acid metabolism is upregulated, while DNA synthesis is down.
+
+- Of particular interest is PRKAA2 gene which codes for AMPK subunit and is highly upregulated in this sample. This could be an inderect evidence of cN1A blocking/supression. Would be good to look at protein levels of cN1A and AMPK to confirm the relationship. 
+
+***
+
+## Session info
+
+The output from running 'sessionInfo' is shown below and details all packages and version necessary to reproduce the results in this report.
+
+```{r session info}
+sessionInfo()
+```
+
